@@ -6,38 +6,53 @@ import RPi.GPIO as GPIO
 import paho.mqtt.client as mqtt
 MQTT_SERVER = "broker.hivemq.com"
 MQTT_PATH = "resulttopic"
-Forward=8
-Backward=10
+MQTT_PATH_1 = "starttopic"
 sleeptime=1
 Relay_solenoid_sw2=12
+Direction_pin = 36
+Enable_servo= 37
+Direction_pin_1 = 38
+Enable_servo_1= 40
+position_x=0
+position_y=0
 GPIO.setwarnings(False) # Ignore warning for now
 GPIO.setmode(GPIO.BOARD)
-GPIO.setup(Forward, GPIO.OUT)
-GPIO.setup(Backward, GPIO.OUT)
 GPIO.setup(Relay_solenoid_sw2, GPIO.OUT) # Set pin 12 to be an input pin and set
 GPIO.setup(16, GPIO.OUT)
 GPIO.setup(18, GPIO.OUT)
+GPIO.setup(Direction_pin, GPIO.OUT)# 36 for Motor Direction
+GPIO.setup(Enable_servo, GPIO.OUT)#37 for Motor Running Pin
+GPIO.setup(Direction_pin_1, GPIO.OUT)# 38 for Motor Direction
+GPIO.setup(Enable_servo_1, GPIO.OUT)#40 for Motor Running Pin
 GPIO.output(16, GPIO.HIGH)
 GPIO.output(18, GPIO.HIGH)
 camera_flag=0
-
 ##################CAMERA INIT##################################
 cap = cv2.VideoCapture(0) #Catpure video from camera
 Ht = 320 #Defined Height of frame
 Wd = 480 #Defined Width of Frame
 cap.set(3, Wd) #Set frame Width
 cap.set(4, Ht) #Set frame height
-_, frame = cap.read() #Store captured frame of camera to variable "frame"
+_,frame = cap.read() #Store captured frame of camera to variable "frame"
 rows, cols, ch = frame.shape #Get frame size 
 x_medium = int(cols / 2) #Initialize horizontal position 
 y_medium = int(rows / 2) #Initialize vertical positon
+
 x_center = int(cols / 2) #Initialize Horizontal center position
 y_center = int(rows / 2) #Initialize Vertical center position
 x_position = 90 # centre posito of servo 
 y_position = 90 # centre posito of servo
 x_band = 50
 y_band = 50
-
+position_flag=0
+##################################################################
+old_position=0
+old_position_y=0
+frame_loop_check=0
+GPIO.output(Direction_pin, GPIO.LOW)
+GPIO.output(Enable_servo, GPIO.LOW)
+def translate(value, leftMin, leftMax, rightMin, rightMax):
+    return (value-leftMin)*(rightMax-rightMin)/(leftMax-leftMin)+rightMin
 ##################################################################
 def compare_strings(str1):
     if(str1.find("b'1'")):
@@ -45,53 +60,38 @@ def compare_strings(str1):
     else:
         return 0
      
-return count1 == count2
+    return count1 == count2
 # The callback for when the client receives a connect response from the server.
-    def on_connect(client, userdata, flags, rc):
+def on_connect(client, userdata, flags, rc):
     print("Connected with result code "+str(rc))
-
-# on_connect() means that if we lose the connection and reconnect then subscriptions will be renewed.
+    # on_connect() means that if we lose the connection and reconnect then subscriptions will be renewed.
     client.subscribe(MQTT_PATH)
 
 # The callback for when a PUBLISH message is received from the server.
-    def on_message(client, userdata, msg):
-    
+def on_message(client, userdata, msg):
+    # global position_flag
+    # position_flag=1
     global camera_flag
     print(str(msg.payload))
     result=str(msg.payload)
     #print(result.find(":0"))
     if(result.find(":0")!=-1):
         camera_flag=1
-	
-# more callbacks, etc
+    
+    
+    # more callbacks, etc
+
 client = mqtt.Client()
 client.on_connect = on_connect
 client.on_message = on_message
 client.connect(MQTT_SERVER, 1883, 60)
+ 
 
-def button_callback(channel):
-        global camera_flag
-        print('motor running....')
-        camera_flag=1
-        print(camera_flag)
-
-def forward(x):
-        GPIO.output(Forward, GPIO.HIGH)
-        print("Moving Forward")
-        time.sleep(x)
-        GPIO.output(Forward, GPIO.LOW)
-
-def reverse(x):
-        GPIO.output(Backward, GPIO.HIGH)
-        print("Moving Backward")
-        time.sleep(x)
-        GPIO.output(Backward, GPIO.LOW)
-	
 time.sleep(3)
 GPIO.output(16, GPIO.LOW)
 GPIO.output(18, GPIO.LOW)
-
 while (1):
+
         #client.loop_forever() #   
         client.loop_start()
         ###############CAMERA CODE######################################
@@ -121,47 +121,74 @@ while (1):
         cv2.line(frame2, (0, y_medium), (Wd, y_medium), (0, 255, 0), 2) #Draw Vertical centre line of red object
         cv2.imshow("IN Frame", frame2) #Printing frame with rectangle &  lines
 
-         # Move Horizontal Servo servo motor
-        if x_medium < x_center - x_band:
-            x_position -= 1
-        elif x_medium > x_center + x_band:
-            x_position += 1
-        # Move Vertiacl Servo servo motor
-        if y_medium < y_center - y_band:
-            y_position -= 1
-        elif y_medium > y_center + y_band:
-            y_position += 1
-               
-        if x_position >= 180:
-            x_position = 180
-        elif x_position <+ 0:
-            x_position = 0
-        else:
-            x_position = x_position
-        if y_position >= 180:
-            y_position = 180
-        elif y_position <= 0:
-            y_position = 0
-        else:
-            y_position = y_position
-	
+   
+        
+        position_x=int(translate(x_medium, 0, 620, 0, 1200)) # 50.0)  
+        position_y=int(translate(y_medium, 0, 620, 0, 1300)) # 50.0)  
+        
+            
         ###############END OF CAMERA CODE################################
         if camera_flag:
-            print("x =", x_medium , "y =", y_medium)   
-            #forward(5)
             camera_flag=0
-            #reverse(5)
+            print("x =", x_medium , "y =", y_medium) 
+            print("x =", position_x , "y =", position_y) 
+            #x-axis motor forward and reverse motor control
+            print("Moving Forward_X")
+            for i in range(0,position_x):
+                    GPIO.output(Direction_pin, GPIO.HIGH)##Rotate ClockWise
+                    GPIO.output(Enable_servo, GPIO.HIGH)
+                    
+                    time.sleep(0.001)
+                    GPIO.output(Enable_servo, GPIO.LOW)
+                    time.sleep(0.001)
+            
+          
+            
+            print("****************************************")
+            ########################################################################
+            #x-axis motor forward and reverse motor control
+            print("Moving Forward_y")
+            for i in range(0,position_y):
+                    GPIO.output(Direction_pin_1, GPIO.HIGH)##Rotate ClockWise
+                    GPIO.output(Enable_servo_1, GPIO.HIGH)
+                    
+                    time.sleep(0.001)
+                    GPIO.output(Enable_servo_1, GPIO.LOW)
+                    time.sleep(0.001)
             GPIO.output(Relay_solenoid_sw2, GPIO.HIGH)
             time.sleep(2)
             GPIO.output(Relay_solenoid_sw2, GPIO.LOW)
-       
-            key = cv2.waitKey(1)
-            if key == 27:
+            time.sleep(5)
+            print("Moving backward_y")
+            for i in range(0,position_y):
+                    GPIO.output(Direction_pin_1, GPIO.LOW)##Rotate Anti Clock wise
+                    GPIO.output(Enable_servo_1, GPIO.HIGH)
+                    time.sleep(0.001)
+                    GPIO.output(Enable_servo_1, GPIO.LOW)
+                    time.sleep(0.001)
+            
+            print("****************************************")
+            print("Moving backward_x")
+            for i in range(0,position_x):
+                    GPIO.output(Direction_pin, GPIO.LOW)##Rotate Anti Clock wise
+                    GPIO.output(Enable_servo, GPIO.HIGH)
+                    time.sleep(0.001)
+                    GPIO.output(Enable_servo, GPIO.LOW)
+                    time.sleep(0.001)
+            #########################################################################
+        
+        key = cv2.waitKey(1)
+        if key == 27:
             #kit.servo[0].angle =(90) 
             #kit.servo[1].angle =(90) 
             print("key", key)    
             break
             
+            
+            
+
+
+
 # Blocking call that processes network traffic, dispatches callbacks and
 # handles reconnecting.
 # Other loop*() functions are available that give a threaded interface and a
@@ -170,8 +197,7 @@ while (1):
 
 cv2.destroyAllWindows()
 cap.release()
-GPIO.output(Forward, GPIO.LOW)
-GPIO.output(Forward, GPIO.LOW)
+
 		
 		
 
